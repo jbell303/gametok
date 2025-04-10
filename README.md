@@ -2,7 +2,7 @@
 
 A TikTok-style swipeable feed for lightweight HTML/CSS/JavaScript games. GameTok provides an immersive, mobile-first experience for playing and sharing simple web games.
 
-![GameTok Preview](./public/screenshot.png)
+<img src="./public/screenshot.png" alt="GameTok Preview" width="60%"/>
 
 ## Features
 

@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <!-- Make viewport responsive and prevent zooming -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Retro Space Invaders</title>
+    <style>
+        /* Reset and Basic Body Styling */
+        * {
+            box-sizing: border-box; /* Include padding and border in element's total width and height */
+            -webkit-tap-highlight-color: transparent; /* Remove blue tap highlight on mobile */
+        }
+        html, body {
+            height: 100%; /* Ensure body takes full height */
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            color: #fff;
+            font-family: 'Courier New', Courier, monospace; /* Retro font */
+            overflow: hidden; /* Prevent scrolling */
+            display: flex;
+            flex-direction: column; /* Stack game and controls vertically */
+            justify-content: center; /* Center vertically */
+            align-items: center; /* Center horizontally */
+        }
+
+        /* Game Area Styling */
+        #game-container {
+            position: relative;
+            /* Ensure container has a minimum width */
+            width: 100%;
+            height: 80%;
+            min-width: 300px;
+            min-height: 400px;
+            max-width: none;
+            max-height: 80vh;
+            border: 2px solid #fff;
+            background-color: #111;
+            overflow: hidden;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            touch-action: none;
+            margin-top: -20px; /* Move the game area up by 20px */
+        }
+
+        /* Shared Styles */
+        .player, .alien, .laser {
+            position: absolute;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        /* Player Styling */
+        .player {
+            bottom: 30px; /* Increase bottom margin to avoid being too close to the edge */
+            width: 30px;
+            height: 15px;
+            background-color: #2ecc71;
+            box-shadow: 0 0 10px #2ecc71;
+            border: 1px solid white;
+            /* Make sure the player is at least visible with a reasonable size */
+            min-width: 30px;
+            min-height: 15px;
+            border-radius: 3px;
+        }
+
+        /* Alien Styling */
+        .alien {
+            width: 20px;
+            height: 15px;
+            background-color: #e74c3c;
+            box-shadow: 0 0 10px #e74c3c;
+            border: 1px solid white;
+            min-width: 20px;
+            min-height: 15px;
+            border-radius: 3px;
+        }
+
+        /* Laser Styling */
+        .laser {
+            width: 4px;
+            height: 10px;
+            background-color: #f1c40f;
+            box-shadow: 0 0 10px #f1c40f;
+        }
+
+        /* UI Elements */
+        #score {
+            position: absolute;
+            top: 15px; /* Adjusted to maintain proper distance from top */
+            left: 15px;
+            font-size: clamp(1em, 3vmin, 1.2em);
+            z-index: 10;
+            user-select: none;
+            text-shadow: 0 0 5px #fff;
+            background-color: rgba(0, 0, 0, 0.5); /* Semi-transparent background */
+            padding: 5px 10px;
+            border-radius: 5px;
+        }
+
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: clamp(1.5em, 5vmin, 2em);
+            color: #e74c3c;
+            text-align: center;
+            display: none;
+            z-index: 20;
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border: 1px solid #e74c3c;
+            width: 80%;
+            user-select: none;
+            border-radius: 5px;
+            text-shadow: 0 0 5px #e74c3c;
+        }
+
+        /* Mobile Controls Styling - REMOVED */
+        #mobile-controls {
+            display: none; /* Hide completely, we'll use gestures instead */
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- Score and Game Area remain the same -->
+    <div id="score">Score: 0</div>
+    <div id="game-container">
+        <div id="player" class="player"></div>
+        <!-- Aliens and Lasers will be added here by JavaScript -->
+    </div>
+    <div id="message"></div>
+
+    <!-- Mobile Controls Area - REMOVED -->
+
+    <script>
+        const gameContainer = document.getElementById('game-container');
+        const player = document.getElementById('player');
+        const scoreDisplay = document.getElementById('score');
+        const messageDisplay = document.getElementById('message');
+        // Mobile controls no longer needed
+        
+        // Game Settings (use calculated values where possible)
+        let GAME_WIDTH = gameContainer.offsetWidth || 300; // Provide default if 0
+        let GAME_HEIGHT = gameContainer.offsetHeight || 400; // Provide default if 0
+        const PLAYER_WIDTH = 30;
+        const PLAYER_HEIGHT = 15;
+        const PLAYER_SPEED = 300; // pixels per second
+        const LASER_SPEED = 400; // pixels per second
+        const LASER_WIDTH = 4;
+        const LASER_HEIGHT = 10;
+        const ALIEN_SPEED = 30;
+        const ALIEN_MOVE_INTERVAL = 800;
+        const ALIEN_DROP_DISTANCE = 15;
+        const LASER_COOLDOWN = 300;
+        const ALIEN_ROWS = 3; // Reduced for better fit
+        const ALIEN_COLS = 6; // Reduced for better fit
+        const ALIEN_WIDTH = 20;
+        const ALIEN_HEIGHT = 15;
+        const ALIEN_PADDING = 15;
+        const ALIEN_START_TOP = 30;
+
+        // Game State
+        let score = 0;
+        let playerX = (GAME_WIDTH - PLAYER_WIDTH) / 2;
+        let aliens = [];
+        let lasers = [];
+        let alienDirection = 1;
+        let lastAlienMoveTime = 0;
+        let canShoot = true;
+        let moveLeft = false;
+        let moveRight = false;
+        let gameRunning = false; // Start as not running
+        let lastTimestamp = 0;
+        let animationFrameId = null;
+        let isMobile = false;
+
+        // --- Touch Handlers ---
+        let touchX = null;
+        let touchMoveX = null;
+        const MIN_SWIPE_DISTANCE = 10; // Minimum distance for swipe detection
+
+        function handleTouchStart(e) {
+            if (!gameRunning) return;
+            e.preventDefault(); // Prevent default touch actions
+            
+            // Store initial touch position
+            touchX = e.touches[0].clientX;
+            touchMoveX = touchX;
+        }
+        
+        function handleTouchMove(e) {
+            if (!gameRunning || touchX === null) return;
+            e.preventDefault();
+            
+            // Update touch position
+            touchMoveX = e.touches[0].clientX;
+            
+            // Calculate swipe distance
+            const distance = touchMoveX - touchX;
+            
+            // Move player based on swipe distance
+            moveLeft = distance < -MIN_SWIPE_DISTANCE;
+            moveRight = distance > MIN_SWIPE_DISTANCE;
+        }
+        
+        function handleTouchEnd(e) {
+            if (!gameRunning) return;
+            
+            // Check if it was a tap (minimal movement)
+            if (touchX !== null && touchMoveX !== null) {
+                const distance = Math.abs(touchMoveX - touchX);
+                if (distance < MIN_SWIPE_DISTANCE) {
+                    // It's a tap - shoot!
+                    shootLaser();
+                }
+            }
+            
+            // Reset movement and touch tracking
+            moveLeft = false;
+            moveRight = false;
+            touchX = null;
+            touchMoveX = null;
+        }
+
+        // --- Detect if mobile device ---
+        function checkIfMobile() {
+            isMobile = window.innerWidth <= 768 || 
+                       ('ontouchstart' in window) || 
+                       (navigator.maxTouchPoints > 0);
+            
+            // We no longer need to show/hide controls since we're using gestures
+        }
+
+        // --- Recalculate Dimensions on Resize ---
+        function updateGameDimensions() {
+            // Get computed dimensions to ensure we have real values
+            const computedStyle = window.getComputedStyle(gameContainer);
+            GAME_WIDTH = parseInt(computedStyle.width, 10);
+            GAME_HEIGHT = parseInt(computedStyle.height, 10);
+            
+            // Add fallbacks if computed dimensions are invalid
+            if (GAME_WIDTH <= 0 || isNaN(GAME_WIDTH)) GAME_WIDTH = 300;
+            if (GAME_HEIGHT <= 0 || isNaN(GAME_HEIGHT)) GAME_HEIGHT = 400;
+            
+            console.log("Updated dimensions:", GAME_WIDTH, GAME_HEIGHT);
+            
+            // Check if mobile on resize
+            checkIfMobile();
+            
+            // Reposition player
+            playerX = Math.max(0, Math.min(GAME_WIDTH - PLAYER_WIDTH, playerX));
+            player.style.left = `${playerX}px`;
+        }
+        
+        // Listen for resize events (debounced for performance)
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(updateGameDimensions, 250);
+        });
+
+
+        // --- Initialization ---
+
+        function createAliens() {
+            aliens = [];
+            document.querySelectorAll('.alien').forEach(el => el.remove());
+
+            // Adjust grid calculation based on current GAME_WIDTH
+            const gridWidth = ALIEN_COLS * (ALIEN_WIDTH + ALIEN_PADDING) - ALIEN_PADDING;
+            const startX = Math.max(5, (GAME_WIDTH - gridWidth) / 2); // Ensure some padding from edge
+
+            console.log("Creating aliens, GAME_WIDTH:", GAME_WIDTH, "GAME_HEIGHT:", GAME_HEIGHT);
+            
+            // Reduce number of aliens for smaller screens
+            const actualCols = GAME_WIDTH < 300 ? 4 : (GAME_WIDTH < 400 ? 5 : ALIEN_COLS);
+            const actualRows = 3; // Reduce rows too
+
+            for (let row = 0; row < actualRows; row++) {
+                for (let col = 0; col < actualCols; col++) {
+                    const alien = document.createElement('div');
+                    alien.classList.add('alien');
+                    const x = startX + col * (ALIEN_WIDTH + ALIEN_PADDING);
+                    const y = ALIEN_START_TOP + row * (ALIEN_HEIGHT + ALIEN_PADDING);
+                    
+                    // Always create aliens - they'll be positioned relative to container
+                    alien.style.left = `${x}px`;
+                    alien.style.top = `${y}px`;
+                    gameContainer.appendChild(alien);
+                    aliens.push({ element: alien, x: x, y: y });
+                }
+            }
+            console.log(`Created ${aliens.length} aliens`);
+        }
+
+        // --- Input Handlers ---
+
+        // Keyboard Handlers (Keep for desktop)
+        function handleKeyDown(e) {
+            if (!gameRunning) return;
+            if (e.key === 'ArrowLeft') moveLeft = true;
+            else if (e.key === 'ArrowRight') moveRight = true;
+            else if (e.key === ' ' || e.key === 'Spacebar') {
+                e.preventDefault();
+                shootLaser();
+            }
+        }
+
+        function handleKeyUp(e) {
+            if (e.key === 'ArrowLeft') moveLeft = false;
+            else if (e.key === 'ArrowRight') moveRight = false;
+        }
+
+        // --- Player Actions ---
+
+        function updatePlayer(deltaTime) {
+            if (!gameRunning) return;
+
+            let dx = 0;
+            if (moveLeft) dx -= PLAYER_SPEED * deltaTime;
+            if (moveRight) dx += PLAYER_SPEED * deltaTime;
+
+            playerX += dx;
+            // Ensure player stays within the visible game area
+            playerX = Math.max(0, Math.min(GAME_WIDTH - PLAYER_WIDTH, playerX));
+            player.style.left = `${playerX}px`;
+        }
+
+        function shootLaser() {
+            if (!canShoot || !gameRunning) return;
+
+            canShoot = false;
+            setTimeout(() => { canShoot = true; }, LASER_COOLDOWN);
+
+            const laser = document.createElement('div');
+            laser.classList.add('laser');
+            // Define size explicitly via JS if needed, or rely on CSS
+            laser.style.width = `${LASER_WIDTH}px`;
+            laser.style.height = `${LASER_HEIGHT}px`;
+
+            const laserX = playerX + (PLAYER_WIDTH / 2) - (LASER_WIDTH / 2); // Center laser
+            const laserY = GAME_HEIGHT - PLAYER_HEIGHT - 30 - LASER_HEIGHT; // Position above player with increased distance
+            laser.style.left = `${laserX}px`;
+            laser.style.top = `${laserY}px`;
+
+            gameContainer.appendChild(laser);
+            lasers.push({ element: laser, x: laserX, y: laserY });
+        }
+
+        // --- Laser Movement & Collision ---
+
+        function updateLasers(deltaTime) {
+             if (!gameRunning) return;
+
+            for (let i = lasers.length - 1; i >= 0; i--) {
+                const laser = lasers[i];
+                laser.y -= LASER_SPEED * deltaTime;
+
+                if (laser.y < -LASER_HEIGHT) { // Check against laser height
+                    laser.element.remove();
+                    lasers.splice(i, 1);
+                } else {
+                    laser.element.style.top = `${laser.y}px`;
+                    if (checkLaserAlienCollision(laser, i)) {
+                       continue;
+                    }
+                }
+            }
+        }
+
+        function checkLaserAlienCollision(laser, laserIndex) {
+             const laserRect = {
+                left: laser.x,
+                top: laser.y,
+                right: laser.x + LASER_WIDTH, // Use constant
+                bottom: laser.y + LASER_HEIGHT // Use constant
+            };
+
+            for (let j = aliens.length - 1; j >= 0; j--) {
+                const alien = aliens[j];
+                 const alienRect = {
+                    left: alien.x,
+                    top: alien.y,
+                    right: alien.x + ALIEN_WIDTH,
+                    bottom: alien.y + ALIEN_HEIGHT
+                };
+
+                if (
+                    laserRect.left < alienRect.right &&
+                    laserRect.right > alienRect.left &&
+                    laserRect.top < alienRect.bottom &&
+                    laserRect.bottom > alienRect.top
+                ) {
+                    alien.element.remove();
+                    aliens.splice(j, 1);
+
+                    laser.element.remove();
+                    lasers.splice(laserIndex, 1);
+
+                    score += 10;
+                    updateScore();
+
+                    if (aliens.length === 0) {
+                        endGame("YOU WIN!");
+                    }
+                    return true; // Collision happened
+                }
+            }
+            return false; // No collision
+        }
+
+        // --- Alien Movement ---
+
+        function moveAliens(timestamp) {
+             if (!gameRunning) return;
+
+            if (timestamp - lastAlienMoveTime < ALIEN_MOVE_INTERVAL) {
+                return;
+            }
+            lastAlienMoveTime = timestamp;
+
+            let moveDown = false;
+            let hitBoundary = false;
+
+            for (const alien of aliens) {
+                const nextX = alien.x + (ALIEN_SPEED * alienDirection);
+                if (nextX < 0 || nextX + ALIEN_WIDTH > GAME_WIDTH) {
+                    hitBoundary = true;
+                    break;
+                }
+            }
+
+            if (hitBoundary) {
+                alienDirection *= -1;
+                moveDown = true;
+            }
+
+            for (let i = aliens.length - 1; i >= 0; i--) {
+                const alien = aliens[i];
+                if (moveDown) {
+                    alien.y += ALIEN_DROP_DISTANCE;
+                } else {
+                    alien.x += ALIEN_SPEED * alienDirection;
+                }
+                alien.element.style.left = `${alien.x}px`;
+                alien.element.style.top = `${alien.y}px`;
+
+                // Check for game over condition (alien reaches bottom edge of player)
+                // Make sure there's adequate space here
+                const bottomLimit = GAME_HEIGHT - 40 - PLAYER_HEIGHT;
+                if (alien.y + ALIEN_HEIGHT >= bottomLimit) {
+                    console.log("Game over triggered by alien:", alien.y + ALIEN_HEIGHT, ">=", bottomLimit);
+                    endGame("GAME OVER");
+                    return;
+                }
+            }
+        }
+
+        // --- Score & Game State ---
+
+        function updateScore() {
+            scoreDisplay.textContent = `Score: ${score}`;
+        }
+
+        function showMessage(text) {
+            messageDisplay.textContent = text;
+            messageDisplay.style.display = 'block';
+        }
+
+        function hideMessage() {
+            messageDisplay.style.display = 'none';
+        }
+
+        function pauseGame() {
+            if (gameRunning) {
+                gameRunning = false;
+                showMessage("GAME PAUSED");
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                    animationFrameId = null;
+                }
+            }
+        }
+
+        function resumeGame() {
+            if (!gameRunning) {
+                gameRunning = true;
+                hideMessage();
+                moveLeft = false; // Reset movement flags to prevent sticking
+                moveRight = false;
+                lastTimestamp = performance.now();
+                animationFrameId = requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function endGame(message) {
+            console.log("Game ended:", message);
+            gameRunning = false;
+            showMessage(message);
+            // Clear movement flags to prevent sticking
+            moveLeft = false;
+            moveRight = false;
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+            // No need to remove listeners here if they check gameRunning flag
+            
+            // Auto restart after a delay
+            setTimeout(() => {
+                if (!gameRunning) {
+                    startGame();
+                }
+            }, 3000);
+        }
+
+        // --- Game Loop ---
+
+        function gameLoop(timestamp) {
+            if (!gameRunning && animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+                return;
+            }
+
+            const deltaTime = (timestamp - lastTimestamp) / 1000 || 0; // Prevent NaN on first frame
+            lastTimestamp = timestamp;
+
+            if (gameRunning) {
+                updatePlayer(deltaTime);
+                updateLasers(deltaTime);
+                moveAliens(timestamp);
+            }
+
+            if (gameRunning) {
+                 animationFrameId = requestAnimationFrame(gameLoop);
+            }
+        }
+
+        // --- Message handler for GameCard communication ---
+        window.addEventListener('message', function(event) {
+            if (event.data === 'pause') {
+                pauseGame();
+            } else if (event.data === 'resume') {
+                resumeGame();
+            }
+        });
+
+        // --- Start Game ---
+        // Store listener references to remove them properly
+        let keydownListener = null;
+        let keyupListener = null;
+
+        function startGame() {
+            // First check if dimensions are valid
+            if (GAME_WIDTH <= 0 || GAME_HEIGHT <= 0) {
+                console.error("Cannot start game with invalid dimensions:", GAME_WIDTH, GAME_HEIGHT);
+                updateGameDimensions();
+                setTimeout(startGame, 300);
+                return;
+            }
+
+            console.log("Starting game...");
+            
+            // Reset state
+            score = 0;
+            playerX = (GAME_WIDTH - PLAYER_WIDTH) / 2;
+            aliens = [];
+            lasers = [];
+            alienDirection = 1;
+            lastAlienMoveTime = 0;
+            canShoot = true;
+            moveLeft = false;
+            moveRight = false;
+            gameRunning = true;
+            lastTimestamp = 0;
+            touchX = null;
+            touchMoveX = null;
+            
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+
+            document.querySelectorAll('.laser').forEach(el => el.remove());
+            document.querySelectorAll('.alien').forEach(el => el.remove());
+
+            hideMessage();
+            updateScore();
+            
+            // Ensure player is properly positioned and visible
+            player.style.left = `${playerX}px`;
+            player.style.width = `${PLAYER_WIDTH}px`;
+            player.style.height = `${PLAYER_HEIGHT}px`;
+            player.style.display = 'block';
+            
+            // Check mobile status
+            checkIfMobile();
+            
+            createAliens(); // Create new aliens
+
+            // --- Remove previous listeners ---
+            if (keydownListener) window.removeEventListener('keydown', keydownListener);
+            if (keyupListener) window.removeEventListener('keyup', keyupListener);
+            
+            // Remove all touch listeners
+            gameContainer.removeEventListener('touchstart', handleTouchStart);
+            gameContainer.removeEventListener('touchmove', handleTouchMove);
+            gameContainer.removeEventListener('touchend', handleTouchEnd);
+            gameContainer.removeEventListener('touchcancel', handleTouchEnd);
+
+            // --- Add event listeners ---
+            keydownListener = handleKeyDown;
+            keyupListener = handleKeyUp;
+
+            window.addEventListener('keydown', keydownListener);
+            window.addEventListener('keyup', keyupListener);
+
+            // Add touch listeners directly to game container
+            gameContainer.addEventListener('touchstart', handleTouchStart, { passive: false });
+            gameContainer.addEventListener('touchmove', handleTouchMove, { passive: false });
+            gameContainer.addEventListener('touchend', handleTouchEnd, { passive: true });
+            gameContainer.addEventListener('touchcancel', handleTouchEnd, { passive: true });
+
+            // Start the game loop
+            lastTimestamp = performance.now();
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        // Check if mobile on load
+        checkIfMobile();
+
+        // Make sure dimensions are updated before everything begins
+        function initGameDimensions() {
+            // Get computed dimensions to ensure we have real values
+            const computedStyle = window.getComputedStyle(gameContainer);
+            GAME_WIDTH = parseInt(computedStyle.width, 10);
+            GAME_HEIGHT = parseInt(computedStyle.height, 10);
+            
+            // Add fallbacks if computed dimensions are invalid
+            if (GAME_WIDTH <= 0 || isNaN(GAME_WIDTH)) GAME_WIDTH = 300;
+            if (GAME_HEIGHT <= 0 || isNaN(GAME_HEIGHT)) GAME_HEIGHT = 400;
+            
+            console.log("Initialized dimensions:", GAME_WIDTH, GAME_HEIGHT);
+            
+            // Always ensure we have valid dimensions
+            if (GAME_WIDTH <= 0 || GAME_HEIGHT <= 0) {
+                console.error("Computed dimensions are still invalid, using defaults");
+                GAME_WIDTH = 300;
+                GAME_HEIGHT = 400;
+            }
+            
+            // Position player
+            playerX = (GAME_WIDTH - PLAYER_WIDTH) / 2;
+            player.style.width = `${PLAYER_WIDTH}px`;
+            player.style.height = `${PLAYER_HEIGHT}px`;
+            player.style.left = `${playerX}px`;
+            
+            return true;
+        }
+
+        // Update all necessary functions to ensure dimensions are correct
+        window.addEventListener('load', function() {
+            console.log("Window loaded, initializing game...");
+            
+            // Try to explicitly set dimensions first
+            gameContainer.style.width = '100%';
+            gameContainer.style.height = '80%';
+            gameContainer.style.minWidth = '300px';
+            gameContainer.style.minHeight = '400px';
+            
+            // Clear any previous game elements
+            document.querySelectorAll('.alien').forEach(el => el.remove());
+            document.querySelectorAll('.laser').forEach(el => el.remove());
+            
+            // Initialize dimensions but give browser time to apply styles
+            setTimeout(function() {
+                initGameDimensions();
+                startGame();
+            }, 300);
+        });
+
+    </script>
+
+</body>
+</html>

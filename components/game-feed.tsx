@@ -37,6 +37,15 @@ const GAMES = [
     shares: 156,
     gameUrl: "/games/breakout.html",
   },
+  {
+    id: "invaders",
+    title: "Space Invaders",
+    creator: "@retrodev",
+    hashtags: ["#classic", "#retro"],
+    likes: 55,
+    shares: 21,
+    gameUrl: "/games/invaders.html",
+  },
 ]
 
 export default function GameFeed() {
